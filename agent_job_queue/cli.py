@@ -19,7 +19,7 @@ Rules:
 
 State lives in $AQ_HOME (default ~/.agent-job-queue), one JSON file per job. A job whose aq process died is dropped.
 """
-import argparse, fcntl, json, os, platform, re, signal, subprocess, sys, time, uuid, shutil
+import argparse, fcntl, json, os, platform, re, shlex, signal, subprocess, sys, time, uuid, shutil
 from pathlib import Path
 
 from . import __version__
@@ -250,12 +250,13 @@ def _claude_hooks(uninstall=False, block=False):
     f = Path.home() / ".claude/settings.json"
     d = json.loads(f.read_text()) if f.exists() else {}
     hooks = d.setdefault("hooks", {})
-    want = {"SessionStart": {"hooks": [{"type": "command", "command": str(HERE / HOOK_FILES[0]), "timeout": 10}]},
-            "PreToolUse": {"matcher": "Bash", "hooks": [{"type": "command", "command": str(HERE / HOOK_FILES[1]), "timeout": 10}]}}
+    # run hooks through an interpreter so they work even if the package install dropped the executable bit
+    want = {"SessionStart": {"hooks": [{"type": "command", "command": "sh " + shlex.quote(str(HERE / HOOK_FILES[0])), "timeout": 10}]},
+            "PreToolUse": {"matcher": "Bash", "hooks": [{"type": "command", "command": shlex.quote(sys.executable) + " " + shlex.quote(str(HERE / HOOK_FILES[1])), "timeout": 10}]}}
     if not block: want.pop("PreToolUse")   # blocking is opt-in (--block); session-start context is the default
     for ev in ("SessionStart", "PreToolUse"):
         entry = want.get(ev)
-        lst = [e for e in hooks.get(ev, []) if not any(h.get("command", "").endswith(HOOK_FILES) for h in e.get("hooks", []))]
+        lst = [e for e in hooks.get(ev, []) if not any(h.get("command", "").strip().strip("'").endswith(HOOK_FILES) for h in e.get("hooks", []))]
         if not uninstall and entry: lst.append(entry)
         if lst: hooks[ev] = lst
         else: hooks.pop(ev, None)
