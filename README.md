@@ -29,11 +29,11 @@ If you're paying for cloud compute because your agents overload a perfectly good
 ## Install
 
 ```bash
-pipx install agent-job-queue        # or: uv tool install agent-job-queue
-aq install                          # tell your agents about it (see below)
+pipx install git+https://github.com/lucidnas/agent-job-queue      # or: uv tool install git+https://github.com/lucidnas/agent-job-queue
+aq install                                                        # tell your agents about it (see below)
 ```
 
-From source: `pipx install git+https://github.com/lucidnas/agent-job-queue`. Needs Python 3.9+ on macOS or Linux; no dependencies.
+Needs Python 3.9+ on macOS or Linux; no dependencies. (Not on PyPI yet.)
 
 ## Use
 

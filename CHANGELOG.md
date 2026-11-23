@@ -3,7 +3,7 @@
 ## 0.2.1 (2026-11-22)
 - `aq install` runs the hooks through `sh` and the current Python, so they work even if a package install drops the executable bit.
 - Leaves an existing queue section mentioning `aq` or `rq` in an instruction file alone.
-- First release on PyPI.
+- Install from GitHub (`pipx install git+https://github.com/lucidnas/agent-job-queue`); not on PyPI yet.
 
 ## 0.2.0 (2026-11-22)
 First public release.
