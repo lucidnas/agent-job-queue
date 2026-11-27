@@ -331,6 +331,17 @@ def board_cmd(a):
     print(json.dumps(d, default=str) if a.json else P.render_board(d))
 
 
+def guard_cmd(a):
+    from . import guard, projects as P
+    if a.fix:
+        targets = [P.need(a.project)] if a.project else [p for p in P.all_projects() if p["name"] != "inbox"]
+        for p in targets:
+            for x in guard.fix_project(p): print(f"[{p['name']}] {x}")
+    w = guard.check_all(media=not a.no_media, only=a.project)
+    if a.json: print(json.dumps(w)); return
+    print("\n".join(w) if w else "guard: all clear")
+
+
 ap = argparse.ArgumentParser(prog="aq", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("--version", action="version", version=f"agent-job-queue {__version__}")
 sp = ap.add_subparsers(dest="c", required=True)
@@ -350,6 +361,7 @@ x = sp.add_parser("resume", help="the focus is no longer waiting"); x.set_defaul
 x = sp.add_parser("idea", help="add an idea to a project's inbox (or list it)"); x.add_argument("text", nargs="*"); x.add_argument("-p", "--project"); x.add_argument("--by"); x.add_argument("--done", type=int, metavar="N", help="remove idea N"); x.set_defaults(f=idea_cmd)
 x = sp.add_parser("next", help="what to work on next"); x.add_argument("--json", action="store_true"); x.set_defaults(f=next_cmd)
 x = sp.add_parser("board", help="focus, queue, ideas, warnings, backup"); x.add_argument("--json", action="store_true"); x.set_defaults(f=board_cmd)
+x = sp.add_parser("guard", help="check git, pushed changes, assets on the SSD, disk space"); x.add_argument("-p", "--project"); x.add_argument("--fix", action="store_true", help="git init + .gitignore + private GitHub repo where missing"); x.add_argument("--no-media", action="store_true"); x.add_argument("--json", action="store_true"); x.set_defaults(f=guard_cmd)
 
 def main():
     a = ap.parse_args()
