@@ -259,6 +259,9 @@ def _claude_hooks(uninstall=False, block=False):
 def install(a):
     targets = a.targets or ["claude", "rules"]
     home = Path.home()
+    if "backup" in targets:
+        from . import backup
+        print(backup.install_backup(a.uninstall))
     if "claude" in targets:
         f = _claude_hooks(a.uninstall, a.block)
         print("claude hooks", "removed from" if a.uninstall else ("session-start + blocking added to" if a.block else "session-start added to (blocking off; add --block to enable)"), f)
@@ -342,12 +345,39 @@ def guard_cmd(a):
     print("\n".join(w) if w else "guard: all clear")
 
 
+def backup_cmd(a):
+    from . import backup
+    if a.ssd or a.remote:
+        with locked():
+            c = conf()
+            if a.ssd: c["ssd_path"] = str(Path(a.ssd).expanduser())
+            if a.remote: c.setdefault("backup", {})["remote"] = a.remote
+            write_conf(c)
+        print("config:", json.dumps({"ssd_path": conf().get("ssd_path"), "backup": conf().get("backup", {})})); return
+    r = backup.run_locked(dry_run=a.dry_run)
+    if r is None: print("backup already running"); return
+    print(json.dumps(r, indent=2, default=str))
+
+
+def history_cmd(a):
+    from . import backup
+    c = conf(); h = c.get("history", {}); ssd = c.get("ssd_path")
+    src = Path(h.get("src", Path.home() / ".claude/projects")).expanduser()
+    if not ssd and "dst" not in h: sys.exit("aq: set the SSD first: aq backup --ssd /Volumes/<name>")
+    dst = Path(h.get("dst", Path(ssd or "/") / "claude-history/projects")).expanduser()
+    if a.hc == "restore":
+        print("restored", backup.restore(a.session, src, dst)); return
+    try: r = backup.move_history(src, dst, a.days, root=ssd, dry_run=a.dry_run)
+    except backup.SSDMissing as e: sys.exit(f"aq: SSD not mounted ({e}); nothing moved")
+    print(("would move" if a.dry_run else "moved"), r["moved"], "session(s),", r["files"], "file(s),", f"{r['bytes']/1024**3:.2f} GB;", r["skipped"], "skipped")
+
+
 ap = argparse.ArgumentParser(prog="aq", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("--version", action="version", version=f"agent-job-queue {__version__}")
 sp = ap.add_subparsers(dest="c", required=True)
 st = sp.add_parser("status", help="machine usage + queue"); st.add_argument("--json", action="store_true"); st.add_argument("--watch", action="store_true"); st.set_defaults(f=status)
 r = sp.add_parser("run", help="queue a command"); r.add_argument("-p", "--project"); r.add_argument("-n", "--name"); r.add_argument("-w", "--weight", type=int, default=4); r.add_argument("cmd", nargs=argparse.REMAINDER); r.set_defaults(f=run)
-i = sp.add_parser("install", help="make coding agents aware of aq"); i.add_argument("targets", nargs="*", choices=["claude", "rules"]); i.add_argument("--uninstall", action="store_true"); i.add_argument("--block", action="store_true", help="also block heavy commands not run through aq (opt-in)"); i.set_defaults(f=install)
+i = sp.add_parser("install", help="make coding agents aware of aq"); i.add_argument("targets", nargs="*", choices=["claude", "rules", "backup"]); i.add_argument("--uninstall", action="store_true"); i.add_argument("--block", action="store_true", help="also block heavy commands not run through aq (opt-in)"); i.set_defaults(f=install)
 c = sp.add_parser("capacity", help="show or set capacity"); c.add_argument("n", nargs="?", type=int); c.set_defaults(f=capacity)
 pr = sp.add_parser("project", help="register and list projects"); pp = pr.add_subparsers(dest="pc", required=True); pr.set_defaults(f=project_cmd)
 x = pp.add_parser("add"); x.add_argument("name"); x.add_argument("--path", action="append", default=[]); x.add_argument("--goal"); x.add_argument("--priority", type=int); x.add_argument("--remote")
@@ -361,6 +391,10 @@ x = sp.add_parser("resume", help="the focus is no longer waiting"); x.set_defaul
 x = sp.add_parser("idea", help="add an idea to a project's inbox (or list it)"); x.add_argument("text", nargs="*"); x.add_argument("-p", "--project"); x.add_argument("--by"); x.add_argument("--done", type=int, metavar="N", help="remove idea N"); x.set_defaults(f=idea_cmd)
 x = sp.add_parser("next", help="what to work on next"); x.add_argument("--json", action="store_true"); x.set_defaults(f=next_cmd)
 x = sp.add_parser("board", help="focus, queue, ideas, warnings, backup"); x.add_argument("--json", action="store_true"); x.set_defaults(f=board_cmd)
+x = sp.add_parser("backup", help="move old history to the SSD and copy the SSD to the cloud (hourly via aq install backup)"); x.add_argument("--dry-run", action="store_true"); x.add_argument("--ssd", help="set the SSD path"); x.add_argument("--remote", help="set the rclone destination, e.g. gdrive:aq-backup"); x.set_defaults(f=backup_cmd)
+h = sp.add_parser("history", help="Claude session history on the SSD"); hh = h.add_subparsers(dest="hc", required=True); h.set_defaults(f=history_cmd)
+x = hh.add_parser("move"); x.add_argument("--days", type=int, default=7); x.add_argument("--dry-run", action="store_true")
+x = hh.add_parser("restore"); x.add_argument("session")
 x = sp.add_parser("guard", help="check git, pushed changes, assets on the SSD, disk space"); x.add_argument("-p", "--project"); x.add_argument("--fix", action="store_true", help="git init + .gitignore + private GitHub repo where missing"); x.add_argument("--no-media", action="store_true"); x.add_argument("--json", action="store_true"); x.set_defaults(f=guard_cmd)
 
 def main():
