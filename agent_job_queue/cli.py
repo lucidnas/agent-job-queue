@@ -219,7 +219,7 @@ RULE = RULE_START + """
 - Long waits: run it in the background and wait for it to exit; don't poll.
 """ + RULE_END
 HERE = Path(__file__).resolve().parent  # package dir; hooks/ ships inside it
-HOOK_FILES = ("hooks/session_start.sh", "hooks/pre_bash.py")
+HOOK_FILES = ("hooks/session_start.sh", "hooks/pre_bash.py", "hooks/pre_edit.py")
 
 
 def _merge_rule(path):
@@ -235,18 +235,20 @@ def _merge_rule(path):
     return "unchanged"
 
 
-def _claude_hooks(uninstall=False, block=False):
+def _claude_hooks(uninstall=False, block=False, focus=False):
     f = Path.home() / ".claude/settings.json"
     d = json.loads(f.read_text()) if f.exists() else {}
     hooks = d.setdefault("hooks", {})
+    py = shlex.quote(sys.executable)
     # run hooks through an interpreter so they work even if the package install dropped the executable bit
-    want = {"SessionStart": {"hooks": [{"type": "command", "command": "sh " + shlex.quote(str(HERE / HOOK_FILES[0])), "timeout": 10}]},
-            "PreToolUse": {"matcher": "Bash", "hooks": [{"type": "command", "command": shlex.quote(sys.executable) + " " + shlex.quote(str(HERE / HOOK_FILES[1])), "timeout": 10}]}}
-    if not block: want.pop("PreToolUse")   # blocking is opt-in (--block); session-start context is the default
+    want = {"SessionStart": [{"hooks": [{"type": "command", "command": "sh " + shlex.quote(str(HERE / HOOK_FILES[0])), "timeout": 10}]}], "PreToolUse": []}
+    if block:   # opt-in: block heavy commands not run through aq
+        want["PreToolUse"].append({"matcher": "Bash", "hooks": [{"type": "command", "command": py + " " + shlex.quote(str(HERE / HOOK_FILES[1])), "timeout": 10}]})
+    if focus:   # opt-in: block edits in projects other than the focus
+        want["PreToolUse"].append({"matcher": "Edit|Write|NotebookEdit|Bash", "hooks": [{"type": "command", "command": py + " " + shlex.quote(str(HERE / HOOK_FILES[2])), "timeout": 10}]})
     for ev in ("SessionStart", "PreToolUse"):
-        entry = want.get(ev)
         lst = [e for e in hooks.get(ev, []) if not any(h.get("command", "").strip().strip("'").endswith(HOOK_FILES) for h in e.get("hooks", []))]
-        if not uninstall and entry: lst.append(entry)
+        if not uninstall: lst += want[ev]
         if lst: hooks[ev] = lst
         else: hooks.pop(ev, None)
     if not hooks: d.pop("hooks", None)
@@ -263,8 +265,10 @@ def install(a):
         from . import backup
         print(backup.install_backup(a.uninstall))
     if "claude" in targets:
-        f = _claude_hooks(a.uninstall, a.block)
-        print("claude hooks", "removed from" if a.uninstall else ("session-start + blocking added to" if a.block else "session-start added to (blocking off; add --block to enable)"), f)
+        f = _claude_hooks(a.uninstall, a.block, a.focus)
+        extra = [n for n, on in (("heavy-command blocking", a.block), ("focus guard", a.focus)) if on]
+        print("claude hooks", "removed from" if a.uninstall else "session-start" + "".join(" + " + x for x in extra) + " added to", f,
+              "" if a.uninstall or extra else "(opt-in: --block, --focus)")
     if "rules" in targets and not a.uninstall:
         for f in [home / "AGENTS.md", home / ".claude/CLAUDE.md", home / ".codex/AGENTS.md", home / ".gemini/GEMINI.md"]:
             agent = {".codex": "codex", ".gemini": "gemini"}.get(f.parent.name)
@@ -377,7 +381,7 @@ ap.add_argument("--version", action="version", version=f"agent-job-queue {__vers
 sp = ap.add_subparsers(dest="c", required=True)
 st = sp.add_parser("status", help="machine usage + queue"); st.add_argument("--json", action="store_true"); st.add_argument("--watch", action="store_true"); st.set_defaults(f=status)
 r = sp.add_parser("run", help="queue a command"); r.add_argument("-p", "--project"); r.add_argument("-n", "--name"); r.add_argument("-w", "--weight", type=int, default=4); r.add_argument("cmd", nargs=argparse.REMAINDER); r.set_defaults(f=run)
-i = sp.add_parser("install", help="make coding agents aware of aq"); i.add_argument("targets", nargs="*", choices=["claude", "rules", "backup"]); i.add_argument("--uninstall", action="store_true"); i.add_argument("--block", action="store_true", help="also block heavy commands not run through aq (opt-in)"); i.set_defaults(f=install)
+i = sp.add_parser("install", help="make coding agents aware of aq"); i.add_argument("targets", nargs="*", choices=["claude", "rules", "backup"]); i.add_argument("--uninstall", action="store_true"); i.add_argument("--block", action="store_true", help="also block heavy commands not run through aq (opt-in)"); i.add_argument("--focus", action="store_true", help="also block edits in projects other than the focus (opt-in)"); i.set_defaults(f=install)
 c = sp.add_parser("capacity", help="show or set capacity"); c.add_argument("n", nargs="?", type=int); c.set_defaults(f=capacity)
 pr = sp.add_parser("project", help="register and list projects"); pp = pr.add_subparsers(dest="pc", required=True); pr.set_defaults(f=project_cmd)
 x = pp.add_parser("add"); x.add_argument("name"); x.add_argument("--path", action="append", default=[]); x.add_argument("--goal"); x.add_argument("--priority", type=int); x.add_argument("--remote")
