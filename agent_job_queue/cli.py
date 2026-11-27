@@ -9,6 +9,13 @@ start renders, encodes and local models at once and the machine falls over. aq m
   aq install [claude] [rules] [--block] [--uninstall]
                                     make agents aware of aq (session-start context + rule files); --block is opt-in
   aq capacity [N]                   show or set the total capacity (default 4)
+
+  aq project add|ls|show|state|scan register projects (paths, goal, priority)
+  aq focus [P] / wait "<what>" / resume / next      the one focus project, and when switching is allowed
+  aq idea "<text>" [-p P]           queue an idea for a project instead of starting it
+  aq board [--json]                 focus, queue, ideas, warnings, last backup
+  aq guard [-p P] [--fix]           git repo, uncommitted/unpushed, media on the Mac, disk space
+  aq backup / aq history restore ID old Claude sessions to the SSD, the SSD to the cloud (aq install backup = hourly)
   aq --version
 
 Rules:
@@ -217,6 +224,8 @@ RULE = RULE_START + """
 - Heavy local work on this machine (renders, video encodes, local Whisper/TTS models, Blender, big builds) runs ONLY through `aq run -p <project> -n "<name>" -w <4 exclusive | 2 heavy | 1 light> -- <command>`.
 - Run `aq status` first. One project runs at a time. Split long jobs into chunks of a few minutes, each its own `aq run`.
 - Long waits: run it in the background and wait for it to exit; don't poll.
+- One focus project (`aq board`). New ideas or requests for other projects go in `aq idea -p <project> "<text>"`, not into new work. Switch only while the focus is waiting (`aq wait "<what>"`) or when the owner says so (`aq focus <project> --by owner`).
+- Before finishing a task, run `aq guard -p <project>` and commit and push.
 """ + RULE_END
 HERE = Path(__file__).resolve().parent  # package dir; hooks/ ships inside it
 HOOK_FILES = ("hooks/session_start.sh", "hooks/pre_bash.py", "hooks/pre_edit.py")

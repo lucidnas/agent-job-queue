@@ -1,5 +1,15 @@
 # Changelog
 
+## 0.3.0 (2026-11-26)
+`aq` becomes the control plane: one focus project, nothing lost.
+
+- Projects: `aq project add|ls|show|state|scan`; `aq run` names jobs from registered paths.
+- Focus: `aq focus`, `aq wait`, `aq resume`, `aq next`; ideas go into project inboxes with `aq idea`.
+- `aq board`: focus, queue, ideas, guard warnings and backup status; also shown at Claude Code session start.
+- `aq guard`: git repo, uncommitted/unpushed, media on the Mac, low disk; `--fix` makes a private GitHub repo.
+- `aq backup` + `aq install backup`: hourly move of old Claude sessions to the SSD and `rclone copy` of the SSD off-site.
+- `aq history restore`. Opt-in focus guard hook: `aq install claude --focus`.
+
 ## 0.2.1 (2026-11-22)
 - `aq install` runs the hooks through `sh` and the current Python, so they work even if a package install drops the executable bit.
 - Leaves an existing queue section mentioning `aq` or `rq` in an instruction file alone.

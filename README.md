@@ -97,6 +97,54 @@ Mark a deliberate one-off with `# aq-skip`. Add your own patterns in `~/.agent-j
 
 Undo everything with `aq install --uninstall claude`.
 
+## One focus project (the control plane)
+
+Agents make starting new work free, so ideas pile up as half-finished projects. `aq` keeps **one project in focus** and queues the rest.
+
+```bash
+aq project add video-app --path ~/code/video-app --path "/Volumes/SSD/video-app" --goal "ship v1" --priority 5
+aq project scan ~/code             # suggests git repos to register (never registers by itself)
+aq focus video-app                 # the one project agents work on
+aq idea -p podcast "try a cold open"   # a new idea goes in that project's inbox, not into a new chat
+aq idea "something for later"      # no project yet: goes to the shared inbox
+aq wait "render chunk 4/12"        # the focus is waiting: agents may pick up the next queued project
+aq next                            # what to work on now
+aq resume                          # back to the focus
+aq board                           # focus, queue, idea counts, warnings, last backup
+```
+
+- `aq run` names a job's project from the registered paths (longest match wins) before falling back to the git folder.
+- New Claude Code sessions get the board in their starting context, with the rule: work on the focus, file everything else with `aq idea`.
+- **Opt-in focus guard:** `aq install claude --focus` adds a hook that stops edits (and non-read-only shell commands) inside a registered project that isn't the focus, unless the focus is waiting. Reads, `aq` commands and unregistered folders are never blocked. The owner switches with `aq focus <project> --by owner`; every switch is logged and shown on the board.
+
+## Guard: git, assets, disk
+
+`aq guard` (also summarised on `aq board`) checks every registered project and warns when:
+- a folder isn't a git repo (`--fix` runs `git init`, writes a `.gitignore` and makes a **private** GitHub repo with `gh`);
+- there are uncommitted changes, unpushed commits or a branch with no upstream;
+- media files over 20 MB sit on the Mac instead of the SSD (`ssd_path` in config);
+- the Mac has less than 15 GB free or the SSD less than 50 GB.
+
+It never commits, pushes or deletes.
+
+## Backup: history off the Mac, the SSD off-site
+
+```bash
+aq backup --ssd "/Volumes/MySSD" --remote gdrive:aq-backup   # one-time config
+aq backup --dry-run                                          # see what would happen
+aq install backup                                            # run it every hour (macOS LaunchAgent)
+aq history restore <session-id>                              # bring an old Claude session back to resume it
+```
+
+Every hour:
+1. If the SSD isn't mounted, it records **SSD MISSING**, shows a notification and stops.
+2. Claude Code sessions older than 7 days (`~/.claude/projects/*/<id>.jsonl` plus the `<id>/` folder) move to `<ssd>/claude-history/projects`: copy, size check, then remove. `memory/` folders are never touched; this week's sessions stay on the Mac.
+3. `rclone copy` uploads the SSD to the remote, history first. It only adds and updates files, never deletes on the remote, and stops after 50 minutes to resume next hour.
+
+Set up the remote once with `rclone config` (Google Drive works well). Make your own Google OAuth client ID for it: rclone's shared one is rate-limited and being retired. If macOS blocks the LaunchAgent from reading `~/.claude` or the SSD, give the Python it names Full Disk Access.
+
+Config lives in `~/.agent-job-queue/config.json`: `ssd_path`, `backup.remote`, `backup.paths` (default: the whole SSD), `backup.exclude`, `backup.bwlimit`, `history.days`, `media_mb`, `mac_min_gb`, `ssd_min_gb`.
+
 ## How it works
 
 - **Job files:** each job is a small JSON file in `~/.agent-job-queue/jobs/` (or `$AQ_HOME`), guarded by an `flock`. No server, no database, no daemon.
