@@ -29,7 +29,8 @@ GB = 1024 ** 3
 
 
 def _git(d, *a):
-    try: return subprocess.run(["git", "-C", str(d), *a], capture_output=True, text=True, timeout=20)
+    # safe.directory=*: repos on exFAT/USB disks fail git's ownership check and would look like "no repo"
+    try: return subprocess.run(["git", "-c", "safe.directory=*", "-C", str(d), *a], capture_output=True, text=True, timeout=8)
     except (OSError, subprocess.TimeoutExpired) as e:
         return subprocess.CompletedProcess(a, 1, "", str(e))
 
@@ -108,7 +109,7 @@ def check_all(media=True, only=None):
 
 
 def fix_project(p):
-    done = []
+    done = []; made_remote = False
     for path in p.get("paths", []):
         if not os.path.isdir(path) or _git(path, "rev-parse", "--show-toplevel").returncode == 0: continue
         _git(path, "init", "-q"); done.append(f"git init {path}")
@@ -116,6 +117,9 @@ def fix_project(p):
         if not gi.exists(): gi.write_text(GITIGNORE); done.append(f"wrote {gi}")
         if not shutil.which("gh"):
             done.append("gh not installed; repo created locally only"); continue
+        if made_remote:
+            done.append(f"{path}: GitHub repo {p['name']} already made for this project's first path; add a remote by hand"); continue
+        made_remote = True
         r = subprocess.run(["gh", "repo", "create", p["name"], "--private", "--source", path, "--remote", "origin"],
                            capture_output=True, text=True)
         done.append(f"gh repo create {p['name']} --private: " + ("ok" if r.returncode == 0 else (r.stderr.strip().splitlines() or ["failed"])[-1]))

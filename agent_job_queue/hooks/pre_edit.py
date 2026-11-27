@@ -10,12 +10,25 @@ try:
     tool, ti = ev.get("tool_name", ""), ev.get("tool_input", {}) or {}
 except Exception:
     sys.exit(0)
+READER = re.compile(r"(ls|cat|head|tail|less|more|wc|grep|egrep|rg|find|stat|du|df|file|pwd|which|type|echo|printf|tree|jq|ffprobe|"
+                    r"sed\s+-n|md5|shasum|sort|uniq|cut|tr|diff|true|"
+                    r"git(\s+-C\s+\S+)*\s+(status|log|diff|show|branch|remote|rev-parse|rev-list|ls-files|blame|describe|tag\s*$|config\s+--get))\b")
+
+
+def read_only(cmd):
+    """True when every part of the command only reads (or is an aq command / a cd), and nothing writes to a file."""
+    c = re.sub(r"'[^']*'|\"[^\"]*\"", "''", cmd)                       # quoted text is data
+    c = re.sub(r"\d?>\s*/dev/null|\d?>&\d|&>\s*/dev/null", " ", c)     # harmless redirects
+    if ">" in c or re.search(r"\bsed\s+(-\w*\s+)*-i|\bfind\b.*\s-(delete|exec)\b", c): return False
+    for part in re.split(r"&&|\|\||;|\||\n", c):
+        part = re.sub(r"^\s*(\w+=\S*\s+)*", "", part).strip()          # leading VAR=x
+        if not part or re.match(r"(cd|aq|agent-job-queue)\b", part) or READER.match(part): continue
+        return False
+    return True
+
+
 if tool == "Bash":
-    cmd = ti.get("command", "") or ""
-    if re.search(r"\b(aq|agent-job-queue)\b", cmd): sys.exit(0)
-    # read-only commands never get blocked: every part is a known reader and nothing is redirected into a file
-    READ = r"\s*(ls|cat|head|tail|less|wc|grep|rg|find|stat|du|df|file|pwd|which|echo|tree|ffprobe|git\s+(status|log|diff|show|branch|remote|rev-parse|ls-files|blame))\b"
-    if ">" not in cmd and all(re.match(READ, part) for part in re.split(r"&&|\|\||;|\|", cmd) if part.strip()): sys.exit(0)
+    if read_only(ti.get("command", "") or ""): sys.exit(0)
     target = ev.get("cwd")
 else:
     target = ti.get("file_path") or ti.get("notebook_path")

@@ -2,7 +2,7 @@
 # Claude Code SessionStart hook (agent-job-queue): puts the live machine queue in every new session's context.
 AQ=$(command -v aq || echo "$HOME/.local/bin/aq")
 S=$("$AQ" status 2>/dev/null | head -14)
-B=$("$AQ" board 2>/dev/null | head -40)
+B=$("$AQ" board --quick 2>/dev/null | head -40)
 python3 - "$S" "$B" <<'PY'
 import json, sys
 s = sys.argv[1] or "aq not available"

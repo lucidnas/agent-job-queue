@@ -77,3 +77,27 @@ def test_bash_reads_allowed_in_other_project(tmp_path):
         assert not denied(tmp_path, {"tool_name": "Bash", "tool_input": {"command": cmd}, "cwd": b}), cmd
     assert denied(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "cat a > b.txt"}, "cwd": b})
     assert denied(tmp_path, {"tool_name": "Bash", "tool_input": {"command": "ls && rm -rf x"}, "cwd": b})
+
+
+def test_more_reads_and_writes(tmp_path):
+    two_projects(tmp_path); b = str(tmp_path / "b")
+    bash = lambda c: denied(tmp_path, {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": b})
+    for c in ("ls 2>/dev/null", "cd x && git status", "sed -n 1,5p f", "git -C x log", "jq . f", 'grep "a>b" f', "aq board 2>&1 | head"):
+        assert not bash(c), c
+    for c in ('git commit -m "fix aq"', "sed -i '' s/a/b/ f", "find . -delete", "npm run build", "echo x > f"):
+        assert bash(c), c
+
+
+def test_install_keeps_user_hooks_and_block(tmp_path):
+    e = env(tmp_path); f = tmp_path / "home/.claude/settings.json"; f.parent.mkdir(parents=True)
+    mine = {"type": "command", "command": "python3 ~/myhooks/hooks/pre_bash.py"}
+    f.write_text(json.dumps({"hooks": {"PreToolUse": [{"matcher": "Bash", "hooks": [mine]}]}}))
+    subprocess.run(AQ + ["install", "claude", "--block"], env=e, check=True, capture_output=True)
+    subprocess.run(AQ + ["install", "claude", "--focus"], env=e, check=True, capture_output=True)
+    cmds = [h["command"] for x in json.loads(f.read_text())["hooks"]["PreToolUse"] for h in x["hooks"]]
+    assert mine["command"] in cmds and any("pre_bash.py" in c and "agent_job_queue" in c for c in cmds) and any("pre_edit.py" in c for c in cmds)
+    subprocess.run(AQ + ["install", "claude", "--no-block"], env=e, check=True, capture_output=True)
+    cmds = [h["command"] for x in json.loads(f.read_text())["hooks"]["PreToolUse"] for h in x["hooks"]]
+    assert mine["command"] in cmds and not any("agent_job_queue/hooks/pre_bash.py" in c for c in cmds)
+    subprocess.run(AQ + ["install", "--uninstall", "claude"], env=e, check=True, capture_output=True)
+    assert [h["command"] for x in json.loads(f.read_text())["hooks"]["PreToolUse"] for h in x["hooks"]] == [mine["command"]]

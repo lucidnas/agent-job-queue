@@ -109,7 +109,7 @@ def set_focus(name, by=None):
 def wait(what):
     with locked():
         f = get_focus()
-        if not f["project"]: raise NoProject("(no focus set)")
+        if not f["project"]: raise ValueError("no focus set; run aq focus <project> first")
         f["waiting_on"] = what; f["since"] = time.time(); _write_focus(f)
     return f
 
@@ -159,7 +159,7 @@ def _age(t):
     return f"{s//86400}d" if s >= 86400 else (f"{s//3600}h{s%3600//60:02d}m" if s >= 3600 else f"{s//60}m")
 
 
-def board_data(warnings=True):
+def board_data(warnings=True, quick=False):
     f = get_focus()
     last = None
     try: last = json.loads(FOCUS_LOG.read_text().splitlines()[-1])
@@ -172,7 +172,7 @@ def board_data(warnings=True):
     if warnings:
         try:
             from . import guard
-            w = guard.check_all(media=False)
+            w = guard.check_disks() if quick else guard.check_all(media=False)
         except ImportError:
             pass
     if b.get("ssd_missing"): w.insert(0, "[backup] SSD MISSING at last backup run")

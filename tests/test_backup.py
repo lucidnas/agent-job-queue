@@ -83,7 +83,7 @@ def test_drive_copy_argv(tmp_path, B, monkeypatch):
     ssd = tmp_path / "SSK SSD"; (ssd / "claude-history").mkdir(parents=True)
     run = Runner(); B.drive_copy([str(ssd)], "gd:aq-backup", ["tmp/**", "._*"], runner=run)
     first, flat = run.calls[0], [a for c in run.calls for a in c]
-    assert first[1] == "copy" and first[2] == str(ssd / "claude-history")      # history goes first, path with space is one arg
+    assert first[1] == "copy" and first[2] == str(ssd / "claude-history") and "--backup-dir" in first      # history goes first, path with space is one arg
     assert "sync" not in flat and not any(a.startswith("--delete") for a in flat)
     assert first[first.index("--max-duration") + 1].endswith("m") and first.count("--exclude") == 2
 
@@ -95,29 +95,68 @@ def test_drive_copy_no_rclone(tmp_path, B, monkeypatch):
 
 
 def test_backup_ssd_missing(tmp_path, B):
-    import agent_job_queue.state as st; st.write_conf({"ssd_path": str(tmp_path / "nossd"), "backup": {"remote": "gd:x"}})
+    cfg(ssd_path=str(tmp_path / "nossd"), backup={"remote": "gd:x"})
     run = Runner(); r = B.run_backup(runner=run, notify=False)
     assert r["ssd_missing"] and run.calls == []
     assert json.loads((tmp_path / "state/backup.json").read_text())["ssd_missing"] is True
 
 
-def test_no_remote_skips_drive(tmp_path, B):
+def cfg(**kw):
+    import agent_job_queue.state as st; st.write_conf(dict({"ssd_must_be_mount": False}, **kw))
+
+
+def test_no_remote_keeps_mac_copy(tmp_path, B):
     ssd = tmp_path / "SSK SSD"; ssd.mkdir()
     src = tmp_path / "home/.claude/projects"; touch(src / "p/s1.jsonl", OLD)
-    import agent_job_queue.state as st; st.write_conf({"ssd_path": str(ssd)})
+    cfg(ssd_path=str(ssd))
     r = B.run_backup(runner=Runner(), notify=False)
-    assert r["drive"] == [{"skipped": "no backup.remote set"}] and r["history"]["moved"] == 1 and r["last_success"]
+    assert r["drive"] == [{"skipped": "no backup.remote set"}] and r["last_success"]
+    assert (src / "p/s1.jsonl").exists() and (ssd / "claude-history/projects/p/s1.jsonl").exists()   # two copies, never one
+
+
+class CheckRunner(Runner):
+    def __init__(self, check_rc): super().__init__(); self.check_rc = check_rc
+    def __call__(self, argv, **kw):
+        self.calls.append(argv); return subprocess.CompletedProcess(argv, self.check_rc if argv[1] == "check" else 0, "", "")
+
+
+@pytest.mark.parametrize("check_rc,removed", [(0, True), (1, False)])
+def test_mac_copy_removed_only_when_remote_confirms(tmp_path, B, monkeypatch, check_rc, removed):
+    monkeypatch.setattr(B.shutil, "which", lambda n: "/x/" + n)
+    ssd = tmp_path / "SSK SSD"; ssd.mkdir(); src = tmp_path / "home/.claude/projects"; touch(src / "p/s1.jsonl", OLD)
+    cfg(ssd_path=str(ssd), backup={"remote": "gd:aq-backup"})
+    r = B.run_backup(runner=CheckRunner(check_rc), notify=False)
+    assert (src / "p/s1.jsonl").exists() != removed and (ssd / "claude-history/projects/p/s1.jsonl").exists()
+    assert r["history"]["on_remote"] is removed
+
+
+def test_leftover_folder_is_not_an_ssd(tmp_path, B):
+    ssd = tmp_path / "SSK SSD"; ssd.mkdir()                   # a plain folder, not a mount point
+    import agent_job_queue.state as st; st.write_conf({"ssd_path": str(ssd)})
+    assert B.run_backup(runner=Runner(), notify=False)["ssd_missing"]
+
+
+def test_restore_refuses_overwrite_and_marks_fresh(tmp_path, B):
+    src, dst = tree(tmp_path); touch(src / "p/s1.jsonl", OLD); B.move_history(src, dst)
+    t = B.restore("s1", src, dst); assert t.stat().st_mtime > time.time() - 60
+    with pytest.raises(FileExistsError): B.restore("s1", src, dst)
+    assert list(B.sessions(src)) == []                        # next hourly run won't move it straight back
+
+
+def test_versions_dir(B):
+    assert B.versions_dir("gd:aq-backup", "2026-11-26") == "gd:aq-backup-versions/2026-11-26"
+    assert B.versions_dir("gd:", "d") == "gd:aq-versions/d"
 
 
 def test_plist(B):
     d = plistlib.loads(B.plist_text("/usr/bin/python3", "/tmp/a q").encode())
     assert d["Label"] == "com.agent-job-queue.backup" and d["StartInterval"] == 3600
     assert d["ProgramArguments"][-1] == "backup" and d["EnvironmentVariables"]["AQ_HOME"] == "/tmp/a q"
+    assert d["EnvironmentVariables"]["PYTHONPATH"] == str(ROOT) and d["WorkingDirectory"] == str(ROOT)   # importable outside the checkout
 
 
 def test_board_shows_backup(tmp_path, B):
-    ssd = tmp_path / "ssd"; ssd.mkdir()
-    import agent_job_queue.state as st; st.write_conf({"ssd_path": str(ssd)})
+    ssd = tmp_path / "ssd"; ssd.mkdir(); cfg(ssd_path=str(ssd))
     B.run_backup(runner=Runner(), notify=False)
     e = dict(os.environ, AQ_HOME=str(tmp_path / "state"), HOME=str(tmp_path / "home"), PYTHONPATH=str(ROOT))
     d = json.loads(subprocess.run(AQ + ["board", "--json"], env=e, capture_output=True, text=True, check=True).stdout)

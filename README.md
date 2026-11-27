@@ -115,7 +115,7 @@ aq board                           # focus, queue, idea counts, warnings, last b
 
 - `aq run` names a job's project from the registered paths (longest match wins) before falling back to the git folder.
 - New Claude Code sessions get the board in their starting context, with the rule: work on the focus, file everything else with `aq idea`.
-- **Opt-in focus guard:** `aq install claude --focus` adds a hook that stops edits (and non-read-only shell commands) inside a registered project that isn't the focus, unless the focus is waiting. Reads, `aq` commands and unregistered folders are never blocked. The owner switches with `aq focus <project> --by owner`; every switch is logged and shown on the board.
+- **Opt-in focus guard:** `aq install claude --focus` (opt-in hooks stay on when you re-run install; `--no-focus`/`--no-block` turn them off) adds a hook that stops edits (and non-read-only shell commands) inside a registered project that isn't the focus, unless the focus is waiting. Reads, `aq` commands and unregistered folders are never blocked. The owner switches with `aq focus <project> --by owner`; every switch is logged and shown on the board.
 
 ## Guard: git, assets, disk
 
@@ -133,13 +133,14 @@ It never commits, pushes or deletes.
 aq backup --ssd "/Volumes/MySSD" --remote gdrive:aq-backup   # one-time config
 aq backup --dry-run                                          # see what would happen
 aq install backup                                            # run it every hour (macOS LaunchAgent)
-aq history restore <session-id>                              # bring an old Claude session back to resume it
+aq history restore <session-id>                              # bring an old Claude session back to resume it (refuses to overwrite a newer Mac copy)
 ```
 
 Every hour:
-1. If the SSD isn't mounted, it records **SSD MISSING**, shows a notification and stops.
-2. Claude Code sessions older than 7 days (`~/.claude/projects/*/<id>.jsonl` plus the `<id>/` folder) move to `<ssd>/claude-history/projects`: copy, size check, then remove. `memory/` folders are never touched; this week's sessions stay on the Mac.
-3. `rclone copy` uploads the SSD to the remote, history first. It only adds and updates files, never deletes on the remote, and stops after 50 minutes to resume next hour.
+1. If the SSD isn't mounted (a real mount point, not a leftover folder under `/Volumes`), it records **SSD MISSING**, shows a notification and stops.
+2. Claude Code sessions older than 7 days (`~/.claude/projects/*/<id>.jsonl` plus the `<id>/` folder) are copied to `<ssd>/claude-history/projects`. `memory/` folders are never touched; this week's sessions stay on the Mac.
+3. `rclone copy` uploads the history, then the whole SSD. It only adds and updates files and never deletes on the remote. A file it would overwrite is kept in a dated `<remote>-versions/` folder, so a corrupted SSD file can't silently replace a good copy. It stops after 50 minutes and resumes next hour.
+4. The Mac copy of a session is removed only after `rclone check` confirms the cloud has it, so every session is always on at least two disks. With no remote set, sessions stay on the Mac.
 
 Set up the remote once with `rclone config` (Google Drive works well). Make your own Google OAuth client ID for it: rclone's shared one is rate-limited and being retired. If macOS blocks the LaunchAgent from reading `~/.claude` or the SSD, give the Python it names Full Disk Access.
 
