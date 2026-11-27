@@ -23,22 +23,8 @@ import argparse, fcntl, json, os, platform, re, shlex, signal, subprocess, sys, 
 from pathlib import Path
 
 from . import __version__
-HOME = Path(os.environ.get("AQ_HOME", Path.home() / ".agent-job-queue"))
-JOBS = HOME / "jobs"; LOCK = HOME / "state.lock"; CONF = HOME / "config.json"
+from .state import HOME, JOBS, LOCK, CONF, conf, write_conf, locked
 POLL = 3
-
-
-def conf():
-    try: return json.loads(CONF.read_text())
-    except Exception: return {"capacity": 4}
-
-
-class locked:
-    def __enter__(self):
-        HOME.mkdir(exist_ok=True); JOBS.mkdir(exist_ok=True)
-        self.f = open(LOCK, "a+"); fcntl.flock(self.f, fcntl.LOCK_EX); return self
-    def __exit__(self, *a):
-        fcntl.flock(self.f, fcntl.LOCK_UN); self.f.close()
 
 
 def alive(pid):
@@ -178,13 +164,16 @@ def status(a):
 
 def capacity(a):
     if a.n is None: print(conf()["capacity"]); return
-    with locked(): c = conf(); c["capacity"] = a.n; CONF.write_text(json.dumps(c))
+    with locked(): c = conf(); c["capacity"] = a.n; write_conf(c)
     print("capacity", a.n)
 
 
 # ---------- run ----------
 
 def project_of(cwd):
+    from .projects import match_path
+    hit = match_path(cwd)
+    if hit: return hit
     r = subprocess.run(["git", "rev-parse", "--show-toplevel"], cwd=cwd, capture_output=True, text=True)
     return Path(r.stdout.strip() if r.returncode == 0 else cwd).name
 
@@ -280,6 +269,68 @@ def install(a):
                 print("rule", _merge_rule(f), f)
 
 
+# ---------- projects, focus, ideas, board ----------
+
+def _pj(): from . import projects; return projects
+
+
+def project_cmd(a):
+    P = _pj()
+    if a.pc == "add":
+        p = P.add(a.name, [str(Path(x).expanduser()) for x in a.path], a.goal or "", a.priority or 0, a.remote)
+        print("project", p["name"], "->", ", ".join(p["paths"]) or "(no paths)")
+    elif a.pc == "ls":
+        ps = P.all_projects()
+        if a.json: print(json.dumps(ps)); return
+        for p in ps: print(f"{p['name']:<20} {p['state']:<7} p{p.get('priority', 0):<2} ideas {len(p['inbox']):<3} {'; '.join(p['paths'])}")
+    elif a.pc == "show":
+        p = P.need(a.name); print(json.dumps({k: v for k, v in p.items() if k != "inbox"}, indent=2)); print("IDEAS"); print(P.render_inbox(p))
+    elif a.pc == "state":
+        P.set_state(a.name, a.state); print(a.name, a.state)
+    elif a.pc == "scan":
+        known = {P._real(x) for p in P.all_projects() for x in p["paths"]}
+        for root in a.dirs:
+            root = Path(root).expanduser()
+            if not root.is_dir(): print(f"# {root}: not found", file=sys.stderr); continue
+            for d in sorted([root] + [x for x in root.iterdir() if x.is_dir()] + [y for x in root.iterdir() if x.is_dir() and not x.name.startswith(".") for y in x.iterdir() if y.is_dir()]):
+                if (d / ".git").exists() and P._real(d) not in known and P.match_path(str(d)) is None:
+                    name = re.sub(r"[^A-Za-z0-9._-]+", "-", d.name).strip("-") or "project"
+                    print(f"aq project add {shlex.quote(name)} --path {shlex.quote(str(d))}")
+
+
+def focus_cmd(a):
+    P = _pj()
+    if not a.name:
+        f = P.get_focus(); print(json.dumps(f) if a.json else P.render_board(P.board_data(warnings=False)).splitlines()[0]); return
+    f = P.set_focus(a.name, a.by); print("focus", f["project"], "(set by", f["set_by"] + ")")
+
+
+def wait_cmd(a): f = _pj().wait(" ".join(a.what)); print("focus", f["project"], "waiting on", f["waiting_on"])
+def resume_cmd(a): f = _pj().resume(); print("focus", f["project"], "resumed")
+
+
+def idea_cmd(a):
+    P = _pj()
+    if a.done:
+        with locked():
+            p = P.need(a.project or "inbox"); n = a.done - 1
+            if not 0 <= n < len(p["inbox"]): sys.exit(f"aq: no idea #{a.done} in {p['name']}")
+            x = p["inbox"].pop(n); P.save_project(p)
+        print("done:", x["text"]); return
+    if not a.text:
+        print(P.render_inbox(P.need(a.project or "inbox"))); return
+    P.add_idea(" ".join(a.text), a.project, a.by); print("idea added to", a.project or "inbox")
+
+
+def next_cmd(a):
+    n = _pj().next_up(); print(json.dumps(n) if a.json else f"next: {n['project'] or '-'}  ({n['why']})")
+
+
+def board_cmd(a):
+    P = _pj(); d = P.board_data()
+    print(json.dumps(d, default=str) if a.json else P.render_board(d))
+
+
 ap = argparse.ArgumentParser(prog="aq", description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
 ap.add_argument("--version", action="version", version=f"agent-job-queue {__version__}")
 sp = ap.add_subparsers(dest="c", required=True)
@@ -287,9 +338,26 @@ st = sp.add_parser("status", help="machine usage + queue"); st.add_argument("--j
 r = sp.add_parser("run", help="queue a command"); r.add_argument("-p", "--project"); r.add_argument("-n", "--name"); r.add_argument("-w", "--weight", type=int, default=4); r.add_argument("cmd", nargs=argparse.REMAINDER); r.set_defaults(f=run)
 i = sp.add_parser("install", help="make coding agents aware of aq"); i.add_argument("targets", nargs="*", choices=["claude", "rules"]); i.add_argument("--uninstall", action="store_true"); i.add_argument("--block", action="store_true", help="also block heavy commands not run through aq (opt-in)"); i.set_defaults(f=install)
 c = sp.add_parser("capacity", help="show or set capacity"); c.add_argument("n", nargs="?", type=int); c.set_defaults(f=capacity)
+pr = sp.add_parser("project", help="register and list projects"); pp = pr.add_subparsers(dest="pc", required=True); pr.set_defaults(f=project_cmd)
+x = pp.add_parser("add"); x.add_argument("name"); x.add_argument("--path", action="append", default=[]); x.add_argument("--goal"); x.add_argument("--priority", type=int); x.add_argument("--remote")
+x = pp.add_parser("ls"); x.add_argument("--json", action="store_true")
+x = pp.add_parser("show"); x.add_argument("name")
+x = pp.add_parser("state"); x.add_argument("name"); x.add_argument("state", choices=["active", "queued", "parked", "done"])
+x = pp.add_parser("scan", help="suggest git repos to register (never registers)"); x.add_argument("dirs", nargs="+")
+x = sp.add_parser("focus", help="show or switch the focus project"); x.add_argument("name", nargs="?"); x.add_argument("--by"); x.add_argument("--json", action="store_true"); x.set_defaults(f=focus_cmd)
+x = sp.add_parser("wait", help="mark the focus as waiting (allows working on another project)"); x.add_argument("what", nargs="+"); x.set_defaults(f=wait_cmd)
+x = sp.add_parser("resume", help="the focus is no longer waiting"); x.set_defaults(f=resume_cmd)
+x = sp.add_parser("idea", help="add an idea to a project's inbox (or list it)"); x.add_argument("text", nargs="*"); x.add_argument("-p", "--project"); x.add_argument("--by"); x.add_argument("--done", type=int, metavar="N", help="remove idea N"); x.set_defaults(f=idea_cmd)
+x = sp.add_parser("next", help="what to work on next"); x.add_argument("--json", action="store_true"); x.set_defaults(f=next_cmd)
+x = sp.add_parser("board", help="focus, queue, ideas, warnings, backup"); x.add_argument("--json", action="store_true"); x.set_defaults(f=board_cmd)
 
 def main():
-    a = ap.parse_args(); a.f(a)
+    a = ap.parse_args()
+    try: a.f(a)
+    except Exception as e:
+        if type(e).__name__ == "NoProject": print(f'aq: no project "{e}" (aq project ls)', file=sys.stderr); sys.exit(2)
+        if isinstance(e, ValueError): print(f"aq: {e}", file=sys.stderr); sys.exit(2)
+        raise
 
 
 if __name__ == "__main__":
