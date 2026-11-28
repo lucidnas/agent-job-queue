@@ -12,6 +12,6 @@ ctx = ("This machine shares one job queue, `aq` (agent-job-queue), across all ag
 b = sys.argv[2] if len(sys.argv) > 2 else ""
 if b:
     ctx += ("\n\nProject board (aq board). Work only on the focus project; put other requests in with aq idea -p <project> \"<text>\". "
-            "Switch projects only while the focus is waiting (aq wait \"<what>\") or when the owner says so (aq focus <project> --by owner).\n" + b)
+            "Switch projects only while the focus is waiting (aq wait \"<what>\") or when the owner says so (aq focus <project> asks the owner to approve).\n" + b)
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "SessionStart", "additionalContext": ctx}}))
 PY

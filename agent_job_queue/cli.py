@@ -224,7 +224,7 @@ RULE = RULE_START + """
 - Heavy local work on this machine (renders, video encodes, local Whisper/TTS models, Blender, big builds) runs ONLY through `aq run -p <project> -n "<name>" -w <4 exclusive | 2 heavy | 1 light> -- <command>`.
 - Run `aq status` first. One project runs at a time. Split long jobs into chunks of a few minutes, each its own `aq run`.
 - Long waits: run it in the background and wait for it to exit; don't poll.
-- One focus project (`aq board`). New ideas or requests for other projects go in `aq idea -p <project> "<text>"`, not into new work. Switch only while the focus is waiting (`aq wait "<what>"`) or when the owner says so (`aq focus <project> --by owner`).
+- One focus project (`aq board`). New ideas or requests for other projects go in `aq idea -p <project> "<text>"`, not into new work. Switch only while the focus is waiting (`aq wait "<what>"`) or when the owner says so (`aq focus <project>` asks the owner to approve).
 - Before finishing a task, run `aq guard -p <project>` and commit and push.
 """ + RULE_END
 HERE = Path(__file__).resolve().parent  # package dir; hooks/ ships inside it

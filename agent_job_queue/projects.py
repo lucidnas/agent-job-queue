@@ -134,7 +134,7 @@ def add_idea(text, project=None, by=None):
     with locked():
         p = load(name)
         if p is None:
-            if project: raise NoProject(project)
+            if project and project != "inbox": raise NoProject(project)
             p = _new("inbox", goal="unsorted ideas; the main chat files them under projects")
         item = {"t": time.time(), "text": text, "by": who(by)}
         p["inbox"].append(item); p["last_touched"] = item["t"]; save_project(p)

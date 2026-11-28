@@ -101,3 +101,31 @@ def test_install_keeps_user_hooks_and_block(tmp_path):
     assert mine["command"] in cmds and not any("agent_job_queue/hooks/pre_bash.py" in c for c in cmds)
     subprocess.run(AQ + ["install", "--uninstall", "claude"], env=e, check=True, capture_output=True)
     assert [h["command"] for x in json.loads(f.read_text())["hooks"]["PreToolUse"] for h in x["hooks"]] == [mine["command"]]
+
+
+def decision(tmp, payload):
+    p = subprocess.run([sys.executable, str(HOOK)], input=json.dumps(payload), env=env(tmp), capture_output=True, text=True)
+    return json.loads(p.stdout)["hookSpecificOutput"]["permissionDecision"] if p.stdout.strip() else "allow"
+
+
+def test_paths_inside_commands(tmp_path):
+    two_projects(tmp_path); a, b = str(tmp_path / "a"), str(tmp_path / "b")
+    run = lambda c: decision(tmp_path, {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": a})
+    for c in (f"cp x {b}/y", f"echo hi > {b}/f", f"cd {b} && npm run build", "cd ../b && rm f", f"git -C {b} commit -m x", f"mv {b}/x ./x"):
+        assert run(c) == "deny", c
+    for c in ("make", f"cp {b}/y ./y", f'git commit -m "see {b}"', f"cat {b}/f", f"ls {b} > /dev/null", f"rsync -a {b}/ ./copy/"):
+        assert run(c) == "allow", c
+
+
+def test_only_owner_switches_focus(tmp_path):
+    two_projects(tmp_path); a = str(tmp_path / "a")
+    run = lambda c: decision(tmp_path, {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": a})
+    for c in ("aq focus b", "aq focus b --by owner", "python3 -m agent_job_queue focus b", f"rm {tmp_path}/state/focus.json"):
+        assert run(c) == "ask", c
+    for c in ("aq focus a", "aq focus --json", "aq focus", 'aq wait "render"', "aq resume"):
+        assert run(c) == "allow", c
+    assert decision(tmp_path, {"tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "state/focus.json")}}) == "ask"
+
+
+def test_idea_to_inbox_by_name(tmp_path):
+    aq(tmp_path, "idea", "-p", "inbox", "x")

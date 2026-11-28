@@ -115,7 +115,7 @@ aq board                           # focus, queue, idea counts, warnings, last b
 
 - `aq run` names a job's project from the registered paths (longest match wins) before falling back to the git folder.
 - New Claude Code sessions get the board in their starting context, with the rule: work on the focus, file everything else with `aq idea`.
-- **Opt-in focus guard:** `aq install claude --focus` (opt-in hooks stay on when you re-run install; `--no-focus`/`--no-block` turn them off) adds a hook that stops edits (and non-read-only shell commands) inside a registered project that isn't the focus, unless the focus is waiting. Reads, `aq` commands and unregistered folders are never blocked. The owner switches with `aq focus <project> --by owner`; every switch is logged and shown on the board.
+- **Opt-in focus guard:** `aq install claude --focus` (opt-in hooks stay on when you re-run install; `--no-focus`/`--no-block` turn them off) adds a hook that stops edits inside a registered project that isn't the focus, unless the focus is waiting. Shell commands are judged by every folder they would write to (their folder, `cd` targets, redirects, `git -C`, path arguments; for `cp`/`rsync` only the destination), so copying *from* another project is fine. Reads, `aq` commands and unregistered folders are never blocked. Switching the focus (`aq focus <project>`, or touching `focus.json`) always asks the owner to approve, so an agent can't move itself onto another project; `aq wait`/`aq resume` don't ask. Every switch is logged and shown on the board.
 
 ## Guard: git, assets, disk
 
