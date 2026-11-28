@@ -121,10 +121,10 @@ def test_only_owner_switches_focus(tmp_path):
     two_projects(tmp_path); a = str(tmp_path / "a")
     run = lambda c: decision(tmp_path, {"tool_name": "Bash", "tool_input": {"command": c}, "cwd": a})
     for c in ("aq focus b", "aq focus b --by owner", "python3 -m agent_job_queue focus b", f"rm {tmp_path}/state/focus.json"):
-        assert run(c) == "ask", c
+        assert run(c) == "deny", c
     for c in ("aq focus a", "aq focus --json", "aq focus", 'aq wait "render"', "aq resume"):
         assert run(c) == "allow", c
-    assert decision(tmp_path, {"tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "state/focus.json")}}) == "ask"
+    assert decision(tmp_path, {"tool_name": "Write", "tool_input": {"file_path": str(tmp_path / "state/focus.json")}}) == "deny"
 
 
 def test_idea_to_inbox_by_name(tmp_path):

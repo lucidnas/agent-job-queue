@@ -4,8 +4,8 @@
 1. Blocks edits to a registered project that is not the focus, unless the focus is waiting. For shell commands it
    looks at the folder the command runs in, `cd` targets and every path written in the command (for cp/mv-style
    commands only the destination counts, so copying *from* another project into the focus is fine).
-2. Switching the focus project (`aq focus <name>`, or touching focus.json) always asks the owner first, so an agent
-   can't move itself onto another project. `aq wait` / `aq resume` don't switch projects and are not asked about.
+2. Switching the focus project (`aq focus <name>`, or touching focus.json) is blocked for agents in every permission
+   mode; the owner runs it themselves (`!aq focus <name> --by owner` in the message box, or a terminal). `aq wait` / `aq resume` don't switch projects and are not asked about.
 Reads, unregistered paths and anything it can't parse are allowed."""
 import json, os, re, shlex, sys
 from pathlib import Path
@@ -76,8 +76,14 @@ def write_targets(cmd, cwd):
     return out
 
 
-def ask(msg):
-    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "ask", "permissionDecisionReason": msg}}))
+OWNER_ONLY = ("Only the owner switches the focus project, and agents can't do it in any permission mode. "
+              "Tell the owner which project and why, and ask them to type `!aq focus <project> --by owner` in the message box "
+              "or run it in a terminal. If the focus is only waiting on something, use `aq wait \"<what>\"` instead.")
+
+
+def block(msg):
+    print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny",
+                                             "permissionDecisionReason": msg + " " + OWNER_ONLY}}))
     sys.exit(0)
 
 
@@ -95,16 +101,16 @@ if tool == "Bash":
     cmd = ti.get("command", "") or ""
     m = FOCUS_SWITCH.search(cmd)
     if m and m.group(1) != focus["project"]:
-        ask(f'Switch the focus project from {focus["project"] or "none"} to {m.group(1)}? Only the owner switches projects.')
+        block(f'This would switch the focus project from {focus["project"] or "none"} to {m.group(1)}.')
     if "focus.json" in cmd and not read_only(cmd):
-        ask("This command touches aq's focus.json. Only the owner switches the focus project.")
+        block("This command touches aq's focus.json.")
     if read_only(cmd): sys.exit(0)
     targets = write_targets(cmd, cwd)
 else:
     t = ti.get("file_path") or ti.get("notebook_path")
     if not t: sys.exit(0)
     if os.path.realpath(os.path.expanduser(t)) == focus_file:
-        ask("This edits aq's focus.json. Only the owner switches the focus project.")
+        block("This edits aq's focus.json.")
     targets = [t]
 
 # --- 1. edits stay in the focus project ---
@@ -118,5 +124,5 @@ if not hit:
     sys.exit(0)
 msg = (f'The focus project is {focus["project"]}, and this touches {hit}. Don\'t work on {hit} now: add it with '
        f'`aq idea -p {hit} "<what>"`. If the focus is waiting on something, run `aq wait "<what>"` first. '
-       f'To switch projects, ask the owner (`aq focus {hit}` asks them to approve).')
+       f'To switch projects, ask the owner to type `!aq focus {hit} --by owner`.')
 print(json.dumps({"hookSpecificOutput": {"hookEventName": "PreToolUse", "permissionDecision": "deny", "permissionDecisionReason": msg}}))

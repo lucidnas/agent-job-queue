@@ -3,7 +3,7 @@
 ## 0.3.1
 
 - Focus guard checks every path a shell command would write to, not only its folder.
-- Switching the focus project asks the owner to approve (agents can't switch themselves).
+- Agents can't switch the focus project in any permission mode; the owner runs it themselves.
 - `aq idea -p inbox` works before the inbox exists.
 
 ## 0.3.0 (2026-11-26)
